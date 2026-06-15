@@ -1,0 +1,111 @@
+# connect — agent bootstrap (llms.txt)
+
+> `connect` is the client CLI for the ab0t **integration mesh**: connect
+> third-party services once, then call their APIs through one authenticated
+> proxy, run normalized tools, and route/observe webhooks — all headless after
+> the one-time consent. This file is the **bootstrap entrypoint for an AI
+> agent**: follow it top to bottom to install the tool, load its operating
+> knowledge, and start acting through connections. Everything linked below is
+> in this repo.
+
+## What this is
+
+The mesh (`https://connect.service.ab0t.com`) is a multi-tenant gateway
+with three surfaces:
+
+- **Proxy** — transparent passthrough to a connected provider's own API; the
+ mesh injects the credential, refreshes OAuth tokens, rate-limits, audits.
+- **Tools (UTS)** — each provider's operations as normalized, input-validated
+ `category/tool/execute` tools. Prefer these for agents.
+- **Webhooks** — inbound provider events matched to your subscriptions and
+ delivered to your URL, HMAC-signed and retried.
+
+A **connection** is a stored, encrypted credential for one account of one
+service. Creating it = consent ONCE; acting through its `connection_id` is
+unlimited and headless.
+
+## Bootstrap sequence
+
+1. **Install the binary.**
+ ```sh
+ curl -fsSL https://raw.githubusercontent.com/ab0t-com/connect-cli/main/install.sh | sh
+ ```
+ (Multi-platform, checksum-verified, atomic, idempotent.) Or run the matching
+ binary from [`release/`](release/) directly — static builds, no deps.
+
+2. **Authenticate.** Headless is the agent path:
+ ```sh
+ export CONNECT_API_KEY=ab0t_sk_live_.. # a service/user key from the auth mesh
+ connect status
+ ```
+ Humans can use `connect login` (browser). API key auth needs no browser.
+
+3. **Load your operating instructions (system prompt).** Read and adopt
+ [`prompts/AGENT_SYSTEM_PROMPT.md`](prompts/AGENT_SYSTEM_PROMPT.md) as your
+ system prompt for driving connect.
+
+4. **Load the driving skill.** Read
+ [`skills/connect/SKILL.md`](skills/connect/SKILL.md) and its references — it
+ encodes the connection model, the proxy-vs-tools decision, the headless/
+ agentic connect loop, and webhook verification. For the raw REST API without
+ the CLI, the live OpenAPI is published at
+ `https://connect.service.ab0t.com/openapi.json`.
+
+5. **Discover and connect.**
+ ```sh
+ connect services list # the connectable catalog
+ connect connections list # what you already have (connection_id)
+ connect add sendgrid --api-key SG.xxxx # API-key services connect headlessly
+ connect add github # OAuth services need one-time human consent
+ ```
+ OAuth requires a browser once. For fully agentic OAuth (service accounts,
+ device-code, pre-provisioning) read
+ [`skills/connect/references/agentic-connections.md`](skills/connect/references/agentic-connections.md).
+
+6. **Act through a connection.**
+ ```sh
+ connect call <connection_id> GET /user/repos # raw proxy passthrough
+ connect tools catalog # discover tools
+ connect tools show google-calendar/create_event --examples # one tool's schema + examples
+ # execute via the API: POST /uts/v1/tools/{category}/{tool}/execute
+ ```
+
+7. **Receive events.**
+ ```sh
+ connect subscribe github push --connection <conn> --url https://myapp.com/hook
+ connect webhooks deliveries list # observe / debug deliveries
+ ```
+
+## Map
+
+- [README.md](README.md) — overview, install, the three surfaces, consent-vs-action.
+- [install.sh](install.sh) — POSIX, HTTPS-only, sha256-verified, multi-platform installer.
+- [release/](release/) — per-platform binaries, `checksums.txt`, `VERSION`.
+- [docs/USAGE.md](docs/USAGE.md) — every command; the connection model; proxy/tools/webhooks; headless auth.
+- [docs/PROVIDERS.md](docs/PROVIDERS.md) — the connectable provider catalog (incl. Xero / Meta Ads / Google Ads).
+- [prompts/AGENT_SYSTEM_PROMPT.md](prompts/AGENT_SYSTEM_PROMPT.md) — system prompt for driving connect with an LLM.
+- [skills/](skills/) — 11 agent skills (Agent Skills standard). Read `connect-concepts` first.
+ Understand: `connect-concepts/` (mental model + glossary), `connect-security/` (encryption, consent, signature verify, tenant isolation).
+ Surfaces: `connect/` (the daily-driver CLI), `connect-connections/` (connection model + setup, OAuth vs API-key, multi-tenant, connection_id), `connect-proxy/` (the `/proxy/{connection_id}` passthrough), `connect-tools/` (validated UTS tools — discover/validate/execute/batch), `connect-realtime/` (receive events: webhooks HTTP-push + websockets `wss ?token=` stream), `connect-auth/` (CLI auth & profiles, headless).
+ Build/operate: `connect-recipes/` (end-to-end cookbook incl. multi-tenant SaaS + agents), `connect-troubleshooting/` (unified error reference + rate limits + debug), `connect-rest-api/` (call the public REST API directly, no CLI).
+
+## Key facts an agent should internalize
+
+- **Act through a `connection_id`.** Everything you DO (proxy, tools, webhooks)
+ is scoped to one connection. List yours with `connect connections list`.
+- **Consent once, act forever.** Creating a connection is the only step that may
+ need a browser (OAuth). After that it's headless. You cannot inject OAuth
+ tokens via the API-key path — that's by design.
+- **Prefer tools over raw proxy** when a tool exists: input validation,
+ structured errors, ownership checks. Fall back to `call`/`proxy` for
+ operations not yet covered by a tool.
+- **Tenancy is enforced server-side.** Wrong-type connection → `400`; missing →
+ `404`; another tenant's connection → `403`. You only ever touch your own org.
+- **Webhook signatures:** `X-Webhook-Signature: t=<ts>,v1=<HMAC-SHA256(raw body,
+ signing_secret)>`. `v1` is HMAC of the **raw body only** (not Stripe-style —
+ `t` is not part of the signed payload). Verify before trusting a delivery.
+- **The `*.service.ab0t.com` hosts are the product's public endpoints** —
+ expected, not secrets. `connect.service.ab0t.com` is the API base.
+- **`-o json`** on any command for machine-readable output; agents get a
+ structured `_next` field (`next_command`, `why`, `alternatives`) to drive the
+ next step.

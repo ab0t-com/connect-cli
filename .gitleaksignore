@@ -1,0 +1,4 @@
+# gitleaks allowlist — one finding fingerprint per line.
+# Add a line only for a CONFIRMED false positive. Get the fingerprint from a
+# gitleaks run: it prints `Fingerprint:` for each finding (format
+# <commit>:<file>:<rule-id>:<line>). This repo currently has zero findings.
